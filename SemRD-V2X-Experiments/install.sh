@@ -84,12 +84,17 @@ cp -v "$SEMRD_ROOT/tools/generate_section7.py" \
       "$V2XVIT_ROOT/v2xvit/tools/generate_section7.py"
 cp -v "$SEMRD_ROOT/tools/compare_methods_data.json" \
       "$V2XVIT_ROOT/v2xvit/tools/compare_methods_data.json"
+cp -v "$SEMRD_ROOT/tools/make_v2xset_mini.sh" \
+      "$V2XVIT_ROOT/v2xvit/tools/make_v2xset_mini.sh"
 chmod +x $V2XVIT_ROOT/v2xvit/tools/run_table*.sh \
-          $V2XVIT_ROOT/v2xvit/tools/run_inference_all.sh
+          $V2XVIT_ROOT/v2xvit/tools/run_inference_all.sh \
+          $V2XVIT_ROOT/v2xvit/tools/make_v2xset_mini.sh
 
 # 4. yaml config
 cp -v "$SEMRD_ROOT/hypes_yaml/point_pillar_v2xvit_semrd.yaml" \
       "$V2XVIT_ROOT/v2xvit/hypes_yaml/point_pillar_v2xvit_semrd.yaml"
+cp -v "$SEMRD_ROOT/hypes_yaml/point_pillar_v2xvit_semrd_mini.yaml" \
+      "$V2XVIT_ROOT/v2xvit/hypes_yaml/point_pillar_v2xvit_semrd_mini.yaml"
 
 # 5. tests
 mkdir -p "$V2XVIT_ROOT/v2xvit/tests"

@@ -1,6 +1,8 @@
 # ===== 大数据 / 日志目录(不上传) =====
 v2x-vit/v2xset/
+v2x-vit/v2xset_mini/
 v2x-vit/logs/
+v2x-vit/v2xset_mini.zip
 
 # ===== Python =====
 __pycache__/
