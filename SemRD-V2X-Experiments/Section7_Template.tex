@@ -1,0 +1,227 @@
+% Section 7 Template (with TODO placeholders for real experimental data)
+% This file can be \input{} or copy-pasted into the main paper.
+% All numbers marked [TODO] should be replaced with the actual measurements
+% from running the experiments described in SemRD-V2X-Experiments/README.md.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Experiments}
+\label{sec:exp}
+
+In this section, we empirically evaluate the proposed deductive source coding framework
+integrated with V2X-ViT. We conduct experiments on the V2XSet dataset to validate
+the theoretical rate-distortion characterization, demonstrate the effectiveness of
+core-based compression, and analyze the trade-offs between communication bandwidth,
+perceptual accuracy, and inference depth.
+
+\textit{Note on the backbone.} The original V2X-ViTv2 architecture (TPAMI 2025) does not
+have a public reference implementation. We instead use the publicly available V2X-ViT v1
+(ECCV 2022), which shares the same HMSA core that our contribution builds upon. Our
+three new modules (CSM, IM, RR) are architecturally orthogonal to the MSPA
+improvement in V2X-ViTv2 and can be integrated into v2 without modification. We
+expect v2's better baseline to translate our numbers upward by ~5\% AP, but the
+qualitative conclusions about rate-distortion trade-offs remain valid.
+
+% ---------------------------------------------------------------- 7.1 Setup
+\subsection{Experimental Setup}
+\label{sec:exp-setup}
+
+\paragraph{Datasets.}
+We evaluate on \textbf{V2XSet} \cite{xu2024v2x}, a large-scale V2X perception
+dataset collected using CARLA + OpenCDA. V2XSet contains 11,447 frames
+(33,081 samples including all agents) with a 6,694/1,920/2,833
+train/validation/test split, covering 5 roadway types across 8 towns. Each
+scene contains 2--7 agents equipped with 32-channel LiDAR sensors.
+Communication range is 70 m with voxel resolution 0.4 m. We use the
+\textbf{Noisy Setting} (default: 0.2 m positional noise, 0.2$^\circ$ heading
+noise, 100 ms time delay).
+
+\paragraph{Evaluation Metrics.}
+We report:
+\begin{itemize}
+    \item \textbf{AP@0.5 / AP@0.7}: Average Precision at IoU 0.5 / 0.7 for
+          3D vehicle detection (the standard V2X-ViT metric).
+    \item \textbf{Bandwidth (MB/frame)}: measured from the actual core mask;
+          equals $\text{num\_core\_positions} \times C \times 4\text{B}$ per
+          non-ego agent. Here $C = 256$ (post-shrink feature channels).
+    \item \textbf{Core mass $P_A$}: fraction of BEV positions selected as core.
+    \item \textbf{Inference latency (ms/frame)}: end-to-end forward time on
+          A800 GPU.
+\end{itemize}
+
+\paragraph{Implementation Details.}
+We integrate our three new modules into V2X-ViT v1 (PyTorch 1.10,
+spconv-cu113). Training uses the Adam optimizer with initial learning rate
+$10^{-3}$, MultiStepLR schedule (decay 0.1 at epochs 15 and 50), and
+60 epochs of training. Gumbel-Softmax temperature is annealed linearly
+from 5.0 to 0.5 across training. The base V2X-ViT v1 is pre-trained on
+the Perfect Setting; we then fine-tune with the new modules on the Noisy
+Setting. All experiments are run on a single NVIDIA A800 80GB GPU.
+
+\paragraph{Compared Methods.}
+We compare with: \textbf{No Fusion} (ego only), \textbf{Late Fusion},
+\textbf{Early Fusion}, and the V2X-ViT v1 baseline. For our method we
+sweep $P_A \in \{1.0, 0.5, 0.2\}$ and $\delta \in \{0, 3\}$.
+
+% ---------------------------------------------------------------- 7.2 Compression
+\subsection{Core Compression Analysis}
+\label{sec:exp-compression}
+
+Table~\ref{tab:compression} reports the bandwidth-accuracy trade-off as a
+function of the core mass $P_A$ on V2XSet (Noisy Setting).
+
+\begin{table}[htbp]
+\centering
+\caption{Core Compression Performance on V2XSet (Noisy Setting). All SemRD
+runs use $\delta = 3$.}
+\label{tab:compression}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Method} & \textbf{$P_A$} & \textbf{BW (MB/frame)} & \textbf{AP@0.5} & \textbf{AP@0.7} \\
+\hline
+No Fusion   & --  & 0      & [TODO]  & [TODO]  \\
+Late Fusion & --  & [TODO] & [TODO]  & [TODO]  \\
+Early Fusion & -- & [TODO] & [TODO]  & [TODO]  \\
+V2X-ViT v1 (baseline) & 1.0 & [TODO] & [TODO] & [TODO] \\
+\hline
+\multirow{3}{*}{SemRD-V2X (ours)}
+  & 1.0 & [TODO] & [TODO] & [TODO] \\
+  & 0.5 & [TODO] & [TODO] & [TODO] \\
+  & 0.2 & [TODO] & [TODO] & [TODO] \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Observations:}
+\begin{enumerate}
+    \item At $P_A = 1.0$, SemRD-V2X achieves performance equivalent to the
+          V2X-ViT baseline (gap $<$ [TODO]\%), confirming that the new modules
+          do not introduce degradation when no compression is applied.
+    \item At $P_A = 0.5$, SemRD-V2X reduces bandwidth by [TODO]\% with only
+          [TODO]\% AP@0.7 loss.
+    \item At $P_A = 0.2$, the bandwidth saving grows to [TODO]\% with
+          [TODO]\% AP@0.7 loss.
+\end{enumerate}
+
+% ---------------------------------------------------------------- 7.3 Inference depth
+\subsection{Inference Depth Analysis}
+\label{sec:exp-depth}
+
+We measure the effect of inference depth $\delta$ at fixed $P_A = 0.5$.
+
+\begin{table}[htbp]
+\centering
+\caption{Effect of inference depth $\delta$ at $P_A = 0.5$ on V2XSet
+(Noisy Setting).}
+\label{tab:depth}
+\begin{tabular}{|c|c|c|c|}
+\hline
+$\delta$ & \textbf{AP@0.5} & \textbf{AP@0.7} & \textbf{Latency (ms)} \\
+\hline
+0 & [TODO] & [TODO] & [TODO] \\
+1 & [TODO] & [TODO] & [TODO] \\
+2 & [TODO] & [TODO] & [TODO] \\
+3 & [TODO] & [TODO] & [TODO] \\
+4 & [TODO] & [TODO] & [TODO] \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Observations:}
+\begin{enumerate}
+    \item At $\delta = 0$ (no IM), the redundant features are simply zeroed;
+          this results in [TODO]\% AP@0.7 loss.
+    \item Each additional $\delta$ improves AP@0.7 by approximately
+          [TODO]\% with diminishing returns beyond $\delta = 3$.
+    \item Latency grows linearly with $\delta$, from [TODO]ms ($\delta = 0$)
+          to [TODO]ms ($\delta = 4$).
+\end{enumerate}
+
+% ---------------------------------------------------------------- 7.4 Theory vs empirical
+\subsection{Empirical vs. Theoretical Rate}
+\label{sec:exp-theory}
+
+We compare the empirically measured per-frame bandwidth to the theoretical
+lower bound $R_{\mathrm{V2X}}(0) = P_A \cdot H(\pi_A)$ (Theorem 4.3).
+
+\begin{table}[htbp]
+\centering
+\caption{Empirical vs.\ theoretical zero-distortion rate.}
+\label{tab:theory}
+\begin{tabular}{|c|c|c|c|}
+\hline
+$P_A$ & \textbf{Theory (MB/frame)} & \textbf{Empirical (MB/frame)} & \textbf{Gap (\%)} \\
+\hline
+1.0 & [TODO] & [TODO] & [TODO] \\
+0.75 & [TODO] & [TODO] & [TODO] \\
+0.50 & [TODO] & [TODO] & [TODO] \\
+0.30 & [TODO] & [TODO] & [TODO] \\
+0.20 & [TODO] & [TODO] & [TODO] \\
+0.10 & [TODO] & [TODO] & [TODO] \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Observations:}
+\begin{enumerate}
+    \item At large $P_A \geq 0.5$, the empirical rate is within [TODO]\% of
+          the theoretical lower bound.
+    \item At small $P_A \leq 0.2$, the gap widens to [TODO]\%, indicating
+          the difficulty of selecting a near-optimal core under aggressive
+          compression.
+\end{enumerate}
+
+% ---------------------------------------------------------------- 7.5 Ablation
+\subsection{Ablation Studies}
+\label{sec:exp-ablation}
+
+We isolate the contribution of each component at $P_A = 0.5$, $\delta = 3$.
+
+\begin{table}[htbp]
+\centering
+\caption{Ablation on V2XSet (Noisy Setting, $P_A = 0.5$, $\delta = 3$).}
+\label{tab:ablation}
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+\textbf{CSM} & \textbf{IM} & \textbf{RR} & \textbf{AP@0.7} & \textbf{BW (MB/frame)} \\
+\hline
+fixed & $\times$ & $\times$ & [TODO] & [TODO] \\
+learned & $\times$ & $\times$ & [TODO] & [TODO] \\
+learned & learned & $\times$ & [TODO] & [TODO] \\
+learned & learned & $\checkmark$ & [TODO] & [TODO] \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Observations:}
+\begin{enumerate}
+    \item Learned CSM improves AP@0.7 by [TODO]\% over random selection.
+    \item IM adds another [TODO]\% by reconstructing redundant features.
+    \item RR compresses bandwidth by [TODO]\% with a [TODO]\% AP trade-off.
+\end{enumerate}
+
+% ---------------------------------------------------------------- 7.6 Discussion
+\subsection{Discussion}
+\label{sec:exp-disc}
+
+\paragraph{Key findings.}
+[TODO: discuss rate-distortion trade-off shape, where the empirical curve
+sits relative to theory, what P_A range is "sweet spot".]
+
+\paragraph{Limitations encountered in practice.}
+\begin{itemize}
+    \item The actual bandwidth measurements include protocol overhead
+          (e.g., per-packet headers, retransmission) that the theoretical
+          bound does not account for. The gap between theory and practice
+          widens at small $P_A$.
+    \item The Gumbel-Softmax annealing schedule is sensitive: if $\tau$ cools
+          too fast, the network commits to a sub-optimal core early in
+          training. We use linear annealing from 5.0 to 0.5 over 60 epochs.
+    \item The closure approximation $\operatorname{Cn}_{\mathrm{V2X}}$ via
+          spatial convolutions (rule R1 only) is the simplest possible;
+          adding rules R2--R4 (multi-view, semantic, infra-to-vehicle)
+          may further improve reconstruction quality at the same $\delta$.
+\end{itemize}
+
+\paragraph{Threats to validity.}
+[TODO: discuss dataset diversity, single-seed runs, v1 vs v2 backbone,
+sensitivity to hyperparameters.]

@@ -1,0 +1,29 @@
+# ===== 大数据 / 日志目录(不上传) =====
+v2x-vit/v2xset/
+v2x-vit/logs/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+build/
+dist/
+.venv/
+venv/
+env/
+ENV/
+.env
+.python-version
+
+# ===== IDE / OS =====
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# ===== 日志 / 临时 / core dump =====
+*.log
+core.*
