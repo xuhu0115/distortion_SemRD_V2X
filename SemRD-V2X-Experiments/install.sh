@@ -67,6 +67,8 @@ cp -v "$SEMRD_ROOT/tools/measure_bandwidth.py" \
 cp -v "$SEMRD_ROOT/tools/_run_helpers.sh" \
       "$V2XVIT_ROOT/v2xvit/tools/_run_helpers.sh"
 # Per-table run scripts
+cp -v "$SEMRD_ROOT/tools/run_table0_v2xvit_baseline.sh" \
+      "$V2XVIT_ROOT/v2xvit/tools/run_table0_v2xvit_baseline.sh"
 cp -v "$SEMRD_ROOT/tools/run_table1_compression.sh" \
       "$V2XVIT_ROOT/v2xvit/tools/run_table1_compression.sh"
 cp -v "$SEMRD_ROOT/tools/run_table2_depth.sh" \

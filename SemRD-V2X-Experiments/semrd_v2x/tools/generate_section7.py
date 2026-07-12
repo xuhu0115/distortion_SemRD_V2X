@@ -48,41 +48,76 @@ def load_baselines():
 
 
 def parse_run_id(run_id):
-    """Parse run_id like 'T1_P10_D03_S00.2' or 'T2_P05_D03_S00.5_VEHICLE'."""
-    # Strip table prefix
-    if run_id.startswith('T'):
-        parts = run_id.split('_')
-        # First part is T1_P10 or T2_P05_D03
-        cfg = parts[1]  # e.g. P10
-        if 'D' in parts[2] if len(parts) > 2 else '':
-            d = int(parts[2][1:])  # D03 -> 3
-        else:
-            d = None
-        # rest is noise/vocab
-        rest = '_'.join(parts[3:]) if len(parts) > 3 else ''
-    else:
-        # Legacy format: P05D03_S00.2
-        parts = run_id.split('_')
-        cfg = parts[0]
-        d = int(cfg[5]) if len(cfg) > 5 else None
-        rest = '_'.join(parts[1:]) if len(parts) > 1 else ''
-
-    pa_x10 = int(cfg[1:3])
-    pa = pa_x10 / 10.0
-
+    """Parse run_id like:
+    - T1_P10_D03_S00.2 (Table 1: P_A sweep)
+    - T2_P05_D03_S00.2 (Table 2: depth sweep)
+    - T3_P05_D03_S0.2 (Table 3: noise)
+    - T4_P05_D03_homogeneous (Table 4: heterogeneous)
+    - T6_RANDOM_P05_D03_RRon (Table 6: ablation, with core_type)
+    - T6_LEARNED_P05_D00_RRon (Table 6: ablation)
+    - legacy: P05D03_S00.2
+    Returns dict {pa, delta, sigma, vocab, core_type, run_id, table}.
+    """
+    parts = run_id.split('_')
     sigma = 0.0
     vocab = 'homogeneous'
-    for token in rest.split('_'):
-        if token.startswith('S') and len(token) > 1:
+    core_type = 'learned'  # default
+    pa = None
+    delta = None
+    table = None
+
+    # Detect table prefix
+    if parts[0].startswith('T') and len(parts[0]) > 1 and parts[0][1:].isdigit():
+        table = int(parts[0][1:])
+
+    # Special case: T0_V2XVITv1_sigma0.2 (true baseline)
+    if run_id.startswith('T0_V2XVITv1'):
+        # Returns V2X-ViTv1 baseline, semrd disabled
+        return {
+            'pa': 1.0,
+            'delta': 0,
+            'sigma': 0.2,
+            'vocab': 'homogeneous',
+            'core_type': 'learned',
+            'table': 0,
+            'run_id': run_id,
+            'is_baseline': True,  # flag for table 1
+        }
+
+    # Find P (P_A * 10) and D (delta) tokens
+    for token in parts:
+        if token.startswith('P') and len(token) >= 3 and token[1:3].isdigit():
+            pa = int(token[1:3]) / 10.0
+        elif token.startswith('D') and len(token) >= 2 and token[1:].isdigit():
+            delta = int(token[1:])
+        elif token.startswith('S') and len(token) > 1:
             try:
                 sigma = float(token[1:])
             except ValueError:
                 pass
-        elif token == 'VEHICLE':
+        elif token == 'VEHICLE' or token == 'vehicle_only':
             vocab = 'vehicle_only'
-        elif token == 'INFRA':
+        elif token == 'INFRA' or token == 'infra_only':
             vocab = 'infra_only'
-    return {'pa': pa, 'delta': d, 'sigma': sigma, 'vocab': vocab}
+        elif token == 'homogeneous':
+            vocab = 'homogeneous'
+        elif token == 'RANDOM' or token == 'random':
+            core_type = 'random'
+        elif token == 'LEARNED' or token == 'learned':
+            core_type = 'learned'
+        elif token == 'RRon' or token == 'RRoff':
+            # Just an RR flag marker; not used downstream
+            pass
+
+    return {
+        'pa': pa,
+        'delta': delta,
+        'sigma': sigma,
+        'vocab': vocab,
+        'core_type': core_type,
+        'table': table,
+        'run_id': run_id,
+    }
 
 
 def safe_ap(metrics, iou=0.5):
@@ -125,12 +160,16 @@ def write_table1(runs, baselines, output_file):
     """Table 1: P_A sweep comparison. Includes published baselines."""
     # Get our P_A sweep results
     pa_results = {}
+    our_baseline = None  # T0: true V2X-ViTv1 baseline
     for run_id, m in runs.items():
         cfg = parse_run_id(run_id)
         if cfg['delta'] != 3 or cfg['sigma'] != 0.2 or cfg['vocab'] != 'homogeneous':
             continue
         # Only take runs with default settings (not ablation)
         if 'T6' in run_id or 'T3' in run_id or 'T4' in run_id:
+            continue
+        if run_id.startswith('T0_'):
+            our_baseline = m
             continue
         if cfg['pa'] in pa_results:
             continue  # first match wins
@@ -183,6 +222,15 @@ def write_table1(runs, baselines, output_file):
     lines.append(r'\textbf{Ours (SemRD-V2X)} & & & & \\')
     lines.append(r'\hline')
 
+    # Add TRUE V2X-ViTv1 baseline (T0, our reproduction, semrd.enabled: false)
+    if our_baseline is not None:
+        ap50 = safe_ap(our_baseline, 0.5)
+        ap70 = safe_ap(our_baseline, 0.7)
+        bw = our_baseline.get('avg_bandwidth_MB_per_frame', None)
+        lines.append(f'\\textbf{{V2X-ViTv1 (our T0 reproduction)}} & 1.00 & '
+                     f'{format_bw(bw)} & {format_ap(ap50)} & {format_ap(ap70)} \\\\')
+        lines.append(r'\hline')
+
     # Sort our results by P_A descending
     for pa in sorted(pa_results.keys(), reverse=True):
         m = pa_results[pa]
@@ -191,7 +239,8 @@ def write_table1(runs, baselines, output_file):
         ap70 = safe_ap(m, 0.7)
         bw = m.get('avg_bandwidth_MB_per_frame', None)
         if pa == 1.0:
-            name = 'SemRD-V2X (no compression, baseline-equiv.)'
+            # This is the SemRD P_A=1.0 row, distinct from the TRUE baseline
+            name = r'\textbf{SemRD-V2X (P_A=1.0, $\delta$=3, RR)}'
         else:
             name = 'SemRD-V2X (ours)'
         lines.append(f'{name} & {pa:.2f} & {format_bw(bw)} & '
@@ -202,7 +251,7 @@ def write_table1(runs, baselines, output_file):
     lines.append('')
     with open(output_file, 'w') as f:
         f.write('\n'.join(lines))
-    print(f'[generate_section7] Wrote Table 1 ({len(pa_results)} SemRD rows + {len(pub_sorted)} baselines)')
+    print(f'[generate_section7] Wrote Table 1 ({len(pa_results)} SemRD rows + {len(pub_sorted)} baselines + T0 baseline)')
 
 
 # ===========================================================================
@@ -482,16 +531,15 @@ def write_table6(runs, output_file):
     lines.append(r'\hline')
 
     for run_id, m in sorted(ablations.items()):
-        # Parse config from run_id (T6_*)
-        config = run_id[3:]  # strip T6_
-        is_fixed = 'FIXED' in config
-        is_learned = 'LEARNED' in config
-        core_label = 'Random/Fixed' if is_fixed else 'Learned'
-        if 'D00' in config:
-            im_label = 'No'
+        # Use parse_run_id to get core_type, delta, etc.
+        cfg = parse_run_id(run_id)
+        if cfg['core_type'] == 'random':
+            core_label = 'Random'
         else:
-            im_label = 'Yes'
-        rr_label = 'Yes' if 'RRon' in config else 'No'
+            core_label = 'Learned'
+        im_label = 'No' if cfg['delta'] == 0 else 'Yes'
+        # RR is on if run_id contains 'RRon'
+        rr_label = 'Yes' if 'RRon' in run_id else 'No'
         ap70 = safe_ap(m, 0.7)
         bw = m.get('avg_bandwidth_MB_per_frame', None)
         lines.append(f'{run_id} & {core_label} & {im_label} & {rr_label} & '

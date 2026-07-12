@@ -31,9 +31,25 @@ PIDS=()
 
 for i in "${!DEPTHS[@]}"; do
     d=${DEPTHS[$i]}
+    # Filter by env var
+    if should_skip_by_index $i; then
+        echo "[$(date +%H:%M:%S)] SKIP index $i (filtered by ONLY_INDICES)"
+        continue
+    fi
+    if should_skip_by_value "$d" "ONLY_DEPTHS"; then
+        echo "[$(date +%H:%M:%S)] SKIP δ=$d (filtered by ONLY_DEPTHS)"
+        continue
+    fi
+
     gpu=${GPUS[$((i % ${#GPUS[@]}))]}
     d_x=$(printf '%02d' $d)
     run_id="T2_P05_D${d_x}_S00.2"
+
+    # Skip if run_id filtered out
+    if should_skip_by_run_id "$run_id"; then
+        echo "[$(date +%H:%M:%S)] SKIP $run_id (filtered by ONLY_RUN_IDS)"
+        continue
+    fi
 
     if [[ -f $LOGS/${run_id}/metrics.json ]]; then
         echo "[$(date +%H:%M:%S)] SKIP $run_id (already done)"

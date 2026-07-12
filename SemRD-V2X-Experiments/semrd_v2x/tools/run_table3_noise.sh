@@ -5,6 +5,23 @@
 
 source "$(dirname "$0")/_run_helpers.sh"
 
+# Auto-detect PROJ if not set (catches user running from /root/project/...)
+if [[ -z "$PROJ" ]] || [[ ! -d "$V2X" ]]; then
+    # Try common locations
+    for candidate in /root/project/distortion_SemRD_V2X \
+                    /home/xuhu/project/distortion_SemRD_V2X \
+                    $HOME/project/distortion_SemRD_V2X; do
+        if [[ -d "$candidate/project/v2x-vit" ]]; then
+            export PROJ=$candidate
+            V2X=$PROJ/project/v2x-vit
+            YAML=$V2X/v2xvit/hypes_yaml/point_pillar_v2xvit_semrd.yaml
+            LOGS=$V2X/logs
+            echo "[run_table3] Auto-detected PROJ=$PROJ"
+            break
+        fi
+    done
+fi
+
 SIGMAS=(0.0 0.2 0.5)
 EPOCHS=${EPOCHS:-30}
 
@@ -31,9 +48,25 @@ PIDS=()
 
 for i in "${!SIGMAS[@]}"; do
     sigma=${SIGMAS[$i]}
+    # Filter by env var
+    if should_skip_by_index $i; then
+        echo "[$(date +%H:%M:%S)] SKIP index $i (filtered by ONLY_INDICES)"
+        continue
+    fi
+    if should_skip_by_value "$sigma" "ONLY_SIGMAS"; then
+        echo "[$(date +%H:%M:%S)] SKIP σ=$sigma (filtered by ONLY_SIGMAS)"
+        continue
+    fi
+
     gpu=${GPUS[$((i % ${#GPUS[@]}))]}
     sigma_str=$(printf 'S%0.1f' $sigma)
     run_id="T3_P05_D03_${sigma_str}"
+
+    # Skip if run_id filtered out
+    if should_skip_by_run_id "$run_id"; then
+        echo "[$(date +%H:%M:%S)] SKIP $run_id (filtered by ONLY_RUN_IDS)"
+        continue
+    fi
 
     if [[ -f $LOGS/${run_id}/metrics.json ]]; then
         echo "[$(date +%H:%M:%S)] SKIP $run_id (already done)"

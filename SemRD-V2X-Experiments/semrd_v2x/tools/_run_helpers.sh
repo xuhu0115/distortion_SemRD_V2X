@@ -5,21 +5,60 @@
 
 set -e
 
-# Locate the v2x-vit install
-PROJ=${PROJ:-/home/xuhu/project/distortion_SemRD_V2X}
+# Locate the v2x-vit install. Priority:
+#   1. $PROJ env var
+#   2. $V2XVIT_ROOT env var
+#   3. Auto-detect: look up for v2x-vit/ or v2xvit/ from cwd
+#   4. Fallback: hardcoded /home/xuhu/project/...
+if [[ -n "$PROJ" ]]; then
+    : # use PROJ as is
+elif [[ -n "$V2XVIT_ROOT" ]]; then
+    PROJ="$(dirname "$(dirname "$V2XVIT_ROOT")")"
+elif [[ -d "$(pwd)/../v2x-vit" ]]; then
+    PROJ="$(cd .. && pwd)"
+elif [[ -d "$(pwd)/v2x-vit" ]]; then
+    PROJ="$(pwd)"
+else
+    PROJ="/home/xuhu/project/distortion_SemRD_V2X"
+fi
+
 V2X=$PROJ/project/v2x-vit
 YAML=$V2X/v2xvit/hypes_yaml/point_pillar_v2xvit_semrd.yaml
 LOGS=$V2X/logs
+
+echo "[run_helpers] PROJ=$PROJ"
+echo "[run_helpers] YAML=$YAML"
 
 mkdir -p "$LOGS"
 
 # num_workers: 8 for new server, 0 for Docker (override with env)
 export NUM_WORKERS=${NUM_WORKERS:-8}
 
-# Set a yaml field (idempotent, replaces value after colon)
+# Set a yaml field (idempotent, preserves leading whitespace).
+# Uses python (not sed) to avoid quoting/escaping issues that bit us before.
 set_yaml() {
     local key="$1" val="$2"
-    sed -i "s|^[[:space:]]*${key}:.*|${key}: ${val}|" "$YAML"
+    python3 -c "
+import sys, re
+path = '$YAML'
+key = sys.argv[1]
+val = sys.argv[2]
+with open(path, 'r') as f:
+    lines = f.readlines()
+new_lines = []
+pat = re.compile(r'^(\s*)' + re.escape(key) + r'\s*:')
+replaced = False
+for line in lines:
+    m = pat.match(line)
+    if m and not replaced:
+        indent = m.group(1)
+        new_lines.append(indent + key + ': ' + val + '\n')
+        replaced = True
+    else:
+        new_lines.append(line)
+with open(path, 'w') as f:
+    f.writelines(new_lines)
+" "$key" "$val"
 }
 
 # Set yaml with structured fields like 'cav_att_config' nested
@@ -65,6 +104,53 @@ start_inference() {
     CUDA_VISIBLE_DEVICES=$gpu python $V2X/v2xvit/tools/inference_semrd.py \
         --model_dir $model_dir --fusion_method intermediate \
         > $LOGS/${run_id}_inference.log 2>&1
+}
+
+# ----- Filter functions (selective run) -----
+# These functions let you select a subset of runs to execute, instead of running all.
+# Usage examples (in your run_table*.sh):
+#   ONLY_PA="0.5 0.3" bash run_table1.sh 0
+#   ONLY_INDICES="0 2 4" bash run_table1.sh 0 1
+#   ONLY_RUN_IDS="T1_P05_D03_S00.2" bash run_table1.sh 0
+# Each returns 0 (skip) or 1 (run).
+
+should_skip_by_value() {
+    # Args: $1 = value to test, $2 = env var name (e.g. ONLY_PA, ONLY_DEPTHS)
+    local value="$1"
+    local var_name="$2"
+    local allow_list="${!var_name:-}"
+    if [[ -z "$allow_list" ]]; then
+        return 1  # no filter, don't skip
+    fi
+    # allow_list is space-separated; check if value is in it
+    if [[ " $allow_list " =~ " $value " ]]; then
+        return 1  # value is in list, don't skip
+    fi
+    return 0  # value not in list, skip
+}
+
+should_skip_by_index() {
+    local index="$1"
+    local allow_list="${ONLY_INDICES:-}"
+    if [[ -z "$allow_list" ]]; then
+        return 1  # no filter, don't skip
+    fi
+    if [[ " $allow_list " =~ " $index " ]]; then
+        return 1  # index in list, don't skip
+    fi
+    return 0  # skip
+}
+
+should_skip_by_run_id() {
+    local run_id="$1"
+    local allow_list="${ONLY_RUN_IDS:-}"
+    if [[ -z "$allow_list" ]]; then
+        return 1  # no filter, don't skip
+    fi
+    if [[ " $allow_list " =~ " $run_id " ]]; then
+        return 1  # run_id in list, don't skip
+    fi
+    return 0  # skip
 }
 
 # Wait for a set of training PIDs

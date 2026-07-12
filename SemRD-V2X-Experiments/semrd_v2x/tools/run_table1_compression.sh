@@ -8,6 +8,22 @@
 
 source "$(dirname "$0")/_run_helpers.sh"
 
+# Auto-detect PROJ if not set (catches user running from /root/project/...)
+if [[ -z "$PROJ" ]] || [[ ! -d "$V2X" ]]; then
+    for candidate in /root/project/distortion_SemRD_V2X \
+                    /home/xuhu/project/distortion_SemRD_V2X \
+                    $HOME/project/distortion_SemRD_V2X; do
+        if [[ -d "$candidate/project/v2x-vit" ]]; then
+            export PROJ=$candidate
+            V2X=$PROJ/project/v2x-vit
+            YAML=$V2X/v2xvit/hypes_yaml/point_pillar_v2xvit_semrd.yaml
+            LOGS=$V2X/logs
+            echo "[run_table1] Auto-detected PROJ=$PROJ"
+            break
+        fi
+    done
+fi
+
 # P_A values to sweep (matching V2X-ViTv2 paper's compression comparison)
 PA_VALUES=(1.0 0.75 0.5 0.3 0.2 0.1)
 EPOCHS=${EPOCHS:-30}
@@ -38,12 +54,28 @@ RUN_IDS=()
 
 for i in "${!PA_VALUES[@]}"; do
     pa=${PA_VALUES[$i]}
+    # Filter by env var
+    if should_skip_by_index $i; then
+        echo "[$(date +%H:%M:%S)] SKIP index $i (filtered by ONLY_INDICES)"
+        continue
+    fi
+    if should_skip_by_value "$pa" "ONLY_PA"; then
+        echo "[$(date +%H:%M:%S)] SKIP P_A=$pa (filtered by ONLY_PA)"
+        continue
+    fi
+
     # Assign GPU round-robin
     gpu=${GPUS[$((i % ${#GPUS[@]}))]}
-    run_id="T1_P$(printf '%02d' $(echo "$pa * 10" | bc | cut -d. -f1))_D03_S00.2"
-    # Format P_A as 2 digits (1.0 -> 10, 0.5 -> 05, 0.1 -> 01)
-    pa_x10=$(printf "%.0f" $(echo "$pa * 10" | bc))
+    # Format P_A as 2-digit integer (1.0 -> 10, 0.5 -> 05, 0.1 -> 01).
+    # Uses python3 to avoid depending on bc.
+    pa_x10=$(python3 -c "print(int($pa * 10))")
     run_id="T1_P$(printf '%02d' $pa_x10)_D03_S00.2"
+
+    # Skip if run_id filtered out
+    if should_skip_by_run_id "$run_id"; then
+        echo "[$(date +%H:%M:%S)] SKIP $run_id (filtered by ONLY_RUN_IDS)"
+        continue
+    fi
 
     # Skip if already done (has metrics.json)
     if [[ -f $LOGS/${run_id}/metrics.json ]]; then

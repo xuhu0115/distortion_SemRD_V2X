@@ -5,14 +5,16 @@
 
 source "$(dirname "$0")/_run_helpers.sh"
 
-# Vocab configurations (need dataset with vehicle/infra vocab split, DAIR-V2X)
-# For now, we run on V2XSet with feature masking as a proxy
+# Vocab configurations (DAIR-V2X-style heterogeneous receiver)
+# - homogeneous: all features used (default)
+# - vehicle_only: only vehicle-to-vehicle features, infra masked out
+# - infra_only: only infrastructure-to-vehicle features, vehicle masked out
 VOCABS=(homogeneous vehicle_only infra_only)
 EPOCHS=${EPOCHS:-30}
 
 GPUS=("$@")
 if [[ ${#GPUS[@]} -eq 0 ]]; then
-    echo "Usage: $0 <gpu1> [gpu2] [gpu3] ..."
+    echo "Usage: $0 <gpu1> [gpu2> [gpu3> ..."
     echo "Example: $0 0 1 2"
     exit 1
 fi
@@ -22,30 +24,44 @@ set_yaml target_core_mass 0.5
 set_yaml inference_depth 3
 set_yaml use_rate_reg true
 set_yaml epoches $EPOCHS
+set_yaml core_selection_mode learned
 
-echo "=== Table 4: heterogeneous receivers (${#VOCABS[@]} runs) ==="
+echo "=== Table 4: heterogeneous receivers (${#VOCABS[@]} runs at P_A=0.5) ==="
 echo "  vocab: ${VOCABS[@]}"
 echo "  GPUs: ${GPUS[@]}"
 echo
-echo "WARNING: heterogeneous experiment requires vocab split in the dataset."
-echo "Current v2x-vit does not have this built-in. The runs will use the"
-echo "default vocab (homogeneous). To enable proper hetero evaluation,"
-echo "modify intermediate_fusion_dataset.py to accept vocab mask."
+echo "Vocab mask is applied via prior_encoding.is_infrastructure field."
 echo
 
 PIDS=()
 
 for i in "${!VOCABS[@]}"; do
     vocab=${VOCABS[$i]}
+    # Filter by env var
+    if should_skip_by_index $i; then
+        echo "[$(date +%H:%M:%S)] SKIP index $i (filtered by ONLY_INDICES)"
+        continue
+    fi
+    if should_skip_by_value "$vocab" "ONLY_VOCABS"; then
+        echo "[$(date +%H:%M:%S)] SKIP vocab=$vocab (filtered by ONLY_VOCABS)"
+        continue
+    fi
+
     gpu=${GPUS[$((i % ${#GPUS[@]}))]}
     run_id="T4_P05_D03_${vocab}"
+
+    # Skip if run_id filtered out
+    if should_skip_by_run_id "$run_id"; then
+        echo "[$(date +%H:%M:%S)] SKIP $run_id (filtered by ONLY_RUN_IDS)"
+        continue
+    fi
 
     if [[ -f $LOGS/${run_id}/metrics.json ]]; then
         echo "[$(date +%H:%M:%S)] SKIP $run_id (already done)"
         continue
     fi
 
-    # TODO: add vocab-specific yaml config
+    set_yaml vocab $vocab
     set_yaml epoches $EPOCHS
     sleep 2
     start_training $run_id $gpu

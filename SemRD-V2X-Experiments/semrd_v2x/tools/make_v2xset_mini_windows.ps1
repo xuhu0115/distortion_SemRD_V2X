@@ -154,15 +154,18 @@ function Extract-Selected-FromZip {
                         $entry, $outFile, $true)
                     $count++
                 }
-                # Also copy data_protocol.yaml if exists
+                # Also copy data_protocol.yaml if exists (as a FILE not dir)
                 $dpEntry = $archive.Entries |
                     Where-Object { $_.FullName -eq "$Prefix$scenario/$agentName/data_protocol.yaml" }
                 if ($dpEntry) {
-                    $dpDest = Join-Path $DestDir $scenario
-                    $dpDest = Join-Path $dpDest $agentName
-                    $dpDest = Join-Path $dpDest "data_protocol.yaml"
-                    [System.IO.Compression.ZipFileExtensions]::ExtractToFile(
-                        $dpEntry, $dpDest, $true)
+                    # If it's a directory entry, skip; we only want files
+                    if ($dpEntry.Length -gt 0) {
+                        $dpDest = Join-Path $DestDir $scenario
+                        $dpDest = Join-Path $dpDest $agentName
+                        $dpDest = Join-Path $dpDest "data_protocol.yaml"
+                        [System.IO.Compression.ZipFileExtensions]::ExtractToFile(
+                            $dpEntry, $dpDest, $true)
+                    }
                 }
             }
         }
@@ -242,6 +245,27 @@ Extract-Selected-FromZip -ZipPath $trainZipPath `
     -DestDir $trainOut -Prefix "train/" -NFrames $NFrames -NSce $NTrain -FileExt ".pcd"
 Extract-Selected-FromZip -ZipPath $trainZipPath `
     -DestDir $trainOut -Prefix "train/" -NFrames $NFrames -NSce $NTrain -FileExt ".yaml"
+
+# === Step 3d: Ensure data_protocol.yaml is a FILE (not a directory) ===
+Write-Host ""
+Write-Host "=== Step 3d: Creating data_protocol.yaml placeholder files ==="
+foreach ($split in @("train", "validate", "test")) {
+    foreach ($scenario in Get-ChildItem "$OUT/$split" -Directory) {
+        $dpPath = Join-Path $scenario.FullName "data_protocol.yaml"
+        if (Test-Path $dpPath) {
+            # If it's a directory (bug from old versions), delete it
+            if ((Get-Item $dpPath) -is [System.IO.DirectoryInfo]) {
+                Write-Host "  Removing old dir: $dpPath"
+                Remove-Item -Recurse -Force $dpPath
+            }
+        }
+        if (-not (Test-Path $dpPath)) {
+            # Create empty placeholder yaml file
+            "# auto-generated placeholder by SemRD-V2X mini extractor" |
+                Out-File -FilePath $dpPath -Encoding ASCII
+        }
+    }
+}
 
 # === Step 4: Clean up temp ===
 Write-Host ""

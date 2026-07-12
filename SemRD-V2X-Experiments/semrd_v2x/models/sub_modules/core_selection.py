@@ -50,18 +50,32 @@ class CoreSelectionModule(nn.Module):
                  metadata_dim: int = 5,
                  hidden: int = 128,
                  target_mass: float = 0.5,
-                 gumbel_tau: float = 5.0):
+                 gumbel_tau: float = 5.0,
+                 mode: str = 'learned'):
+        """
+        Args:
+            mode: 'learned' (default, use score_mlp) or 'random' (no learning,
+                  random top-k per forward pass). Used for ablation Table 6.
+        """
         super().__init__()
         self.in_dim = in_dim
         self.metadata_dim = metadata_dim
         self.target_mass = float(target_mass)
         self.gumbel_tau = float(gumbel_tau)
+        self.mode = mode
 
-        self.score_mlp = nn.Sequential(
-            nn.Linear(in_dim + metadata_dim, hidden),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden, 1),
-        )
+        # Score MLP only used in 'learned' mode; in 'random' mode it's not used
+        # but we keep it as a no-op (parameters won't be optimized via the
+        # 'random' ablation run is only one epoch; the model still has the params)
+        if mode == 'learned':
+            self.score_mlp = nn.Sequential(
+                nn.Linear(in_dim + metadata_dim, hidden),
+                nn.ReLU(inplace=True),
+                nn.Linear(hidden, 1),
+            )
+        else:
+            # Identity for random mode (still a Module, but no learning)
+            self.score_mlp = nn.Identity()
 
         # Cache the last computed score_logits so the trainer can read it back
         # for the rate regularizer (RR) without re-running the network.
@@ -135,14 +149,20 @@ class CoreSelectionModule(nn.Module):
         N, C, H, W = feature_map.shape
         device = feature_map.device
 
-        # 1. build metadata
+        # 1. build metadata (still used even in random mode, for visualization)
         metadata = self.build_metadata(feature_map)  # (N, M, H, W)
 
         # 2. score each position
-        feat_flat = feature_map.permute(0, 2, 3, 1).reshape(N, H * W, C)
-        meta_flat = metadata.permute(0, 2, 3, 1).reshape(N, H * W, self.metadata_dim)
-        cat = torch.cat([feat_flat, meta_flat], dim=-1)  # (N, H*W, C+M)
-        score_logits = self.score_mlp(cat).squeeze(-1)  # (N, H*W)
+        if self.mode == 'learned':
+            feat_flat = feature_map.permute(0, 2, 3, 1).reshape(N, H * W, C)
+            meta_flat = metadata.permute(0, 2, 3, 1).reshape(N, H * W, self.metadata_dim)
+            cat = torch.cat([feat_flat, meta_flat], dim=-1)  # (N, H*W, C+M)
+            score_logits = self.score_mlp(cat).squeeze(-1)  # (N, H*W)
+        else:
+            # Random mode: use uniform random scores (uniform [0, 1])
+            # This breaks the top-k selection's correlation with feature content,
+            # so the resulting mask is essentially random.
+            score_logits = torch.rand(N, H * W, device=device)
         self._last_score_logits = score_logits.detach()
 
         # 3. top-k (or gumbel top-k)

@@ -98,6 +98,11 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
         self.gumbel_tau_end = float(semrd_cfg.get('gumbel_temperature_end', 0.5))
         self.metadata_dim = int(semrd_cfg.get('metadata_dim', 5))
         self.score_mlp_hidden = int(semrd_cfg.get('score_mlp_hidden', 128))
+        # 'learned' (default, use score_mlp) or 'random' (no learn, ablation)
+        self.core_selection_mode = str(semrd_cfg.get('core_selection_mode', 'learned'))
+        # Heterogeneous receiver vocabulary: 'homogeneous' (default),
+        # 'vehicle_only', 'infra_only'. Used in Table 4.
+        self.vocab = str(semrd_cfg.get('vocab', 'homogeneous'))
 
         # ---- new modules ----
         if self.semrd_enabled:
@@ -106,6 +111,7 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
                 metadata_dim=self.metadata_dim,
                 hidden=self.score_mlp_hidden,
                 target_mass=self.target_core_mass,
+                mode=self.core_selection_mode,
                 gumbel_tau=self.gumbel_tau_init,
             )
             self.inference_module = DifferentiableInferenceModule(
@@ -217,6 +223,23 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
             regrouped_mask = _regroup_mask(core_mask, record_len, self.max_cav)
         else:
             regrouped_mask = torch.ones(B, L, 1, H, W, device=regroup_feature.device)
+
+        # ===== NEW Heterogeneous vocabulary mask =====
+        # prior_encoding: (B, L, 3) where [..., 2] = is_infrastructure (0/1)
+        if self.vocab != 'homogeneous' and prior_encoding is not None:
+            is_infra = prior_encoding[..., 2] > 0.5  # (B, L) bool
+            if self.vocab == 'vehicle_only':
+                # Mask out infrastructure features (keep only vehicles)
+                vocab_mask = (~is_infra).float().view(B, L, 1, 1, 1)
+            elif self.vocab == 'infra_only':
+                # Mask out vehicle features (keep only infrastructure)
+                vocab_mask = is_infra.float().view(B, L, 1, 1, 1)
+            else:
+                vocab_mask = torch.ones(B, L, 1, 1, 1, device=regroup_feature.device)
+            regroup_feature = regroup_feature * vocab_mask
+            print(f'[SemRD] vocab={self.vocab}: '
+                  f'vehicles={int((~is_infra).sum())}, '
+                  f'infra={int(is_infra.sum())}')
 
         # ===== NEW Stage C: Differentiable Inference Module =====
         if self.semrd_enabled and self.inference_module is not None and self.inference_depth > 0:
