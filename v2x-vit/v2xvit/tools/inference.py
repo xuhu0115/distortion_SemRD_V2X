@@ -48,7 +48,7 @@ def main():
     opencood_dataset = build_dataset(hypes, visualize=True, train=False)
     data_loader = DataLoader(opencood_dataset,
                              batch_size=1,
-                             num_workers=10,
+                             num_workers=6,
                              collate_fn=opencood_dataset.collate_batch_test,
                              shuffle=False,
                              pin_memory=False,

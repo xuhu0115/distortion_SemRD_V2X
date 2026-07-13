@@ -89,7 +89,10 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
 
         # ---- read SemRD config ----
         semrd_cfg = args.get('semrd', {})
-        self.semrd_enabled = semrd_cfg.get('enabled', True)
+        # IMPORTANT: default to False so that using the original V2X-ViT yaml
+        # (which has no 'semrd' section) reproduces the baseline exactly.
+        # Only when the yaml explicitly sets 'semrd.enabled: true' do we enable CSM/IM.
+        self.semrd_enabled = semrd_cfg.get('enabled', False)
         self.target_core_mass = float(semrd_cfg.get('target_core_mass', 0.5))
         self.inference_depth = int(semrd_cfg.get('inference_depth', 3))
         self.lambda_rate = float(semrd_cfg.get('lambda_rate', 0.05))

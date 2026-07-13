@@ -162,6 +162,13 @@ def main():
             # log
             core_mass = ouput_dict.get('core_mass', torch.tensor(1.0))
             bandwidth_bytes = ouput_dict.get('bandwidth_bytes', 0.0)
+            # Fallback for V2X-ViT baseline (no CSM, no bandwidth field):
+            # compute bandwidth from record_len (number of agents per sample)
+            if bandwidth_bytes == 0.0 or bandwidth_bytes is None:
+                record_len = batch_data['record_len']
+                N_agents = int(record_len.sum().item())
+                # C=256, H=48, W=176 (from shrink_conv output)
+                bandwidth_bytes = float(N_agents) * 256 * 48 * 176 * 4
             core_mass_f = float(core_mass.item()) if torch.is_tensor(core_mass) else 1.0
             bw_mb = float(bandwidth_bytes) / (1024 * 1024) \
                 if isinstance(bandwidth_bytes, (int, float)) else 0.0
