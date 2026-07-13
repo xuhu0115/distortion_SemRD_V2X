@@ -14,6 +14,9 @@ Differences:
   1. Uses the SemRD model class.
   2. Times each forward pass for latency.
   3. Accumulates core_mass and bandwidth statistics across the dataset.
+  4. Supports --epoch N to load a specific checkpoint.
+  5. Saves per-epoch metrics_*.json AND backs up eval.yaml as eval_ep*.yaml
+     so consecutive inference runs don't clobber each other.
 
 Place at:  v2xvit/tools/inference_semrd.py
 Run with:  python v2xvit/tools/inference_semrd.py \
@@ -26,6 +29,7 @@ Run with:  python v2xvit/tools/inference_semrd.py \
 import argparse
 import json
 import os
+import shutil
 import time
 from collections import defaultdict
 
@@ -146,7 +150,23 @@ def main():
     if avg_lat is not None:
         print(f"Avg latency:      {avg_lat:.2f} ms/frame")
 
-    # save JSON
+    # ---- Back up eval.yaml with epoch suffix ----
+    # Without this, running --epoch 5, then --epoch 10 would overwrite
+    # eval.yaml each time, losing the ep5 result. With the backup:
+    #   eval.yaml         -- latest run
+    #   eval_ep5.yaml     -- ep5 result preserved
+    #   eval_ep10.yaml    -- ep10 result preserved
+    src_eval = os.path.join(opt.model_dir, 'eval.yaml')
+    if os.path.isfile(src_eval):
+        suffix = f'ep{opt.epoch}' if opt.epoch > 0 else 'latest'
+        dst_eval = os.path.join(opt.model_dir, f'eval_{suffix}.yaml')
+        try:
+            shutil.copy(src_eval, dst_eval)
+            print(f'Also saved eval.yaml copy as: {dst_eval}')
+        except Exception as e:
+            print(f'Warning: failed to copy eval.yaml: {e}')
+
+    # ---- save JSON metrics ----
     if opt.save_metrics:
         save_path = opt.save_metrics
     elif opt.metrics_name:
