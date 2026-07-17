@@ -89,7 +89,10 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
 
         # ---- read SemRD config ----
         semrd_cfg = args.get('semrd', {})
-        self.semrd_enabled = semrd_cfg.get('enabled', True)
+        # IMPORTANT: default to False so that using the original V2X-ViT yaml
+        # (which has no 'semrd' section) reproduces the baseline exactly.
+        # Only when the yaml explicitly sets 'semrd.enabled: true' do we enable CSM/IM.
+        self.semrd_enabled = semrd_cfg.get('enabled', False)
         self.target_core_mass = float(semrd_cfg.get('target_core_mass', 0.5))
         self.inference_depth = int(semrd_cfg.get('inference_depth', 3))
         self.lambda_rate = float(semrd_cfg.get('lambda_rate', 0.05))
@@ -98,6 +101,11 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
         self.gumbel_tau_end = float(semrd_cfg.get('gumbel_temperature_end', 0.5))
         self.metadata_dim = int(semrd_cfg.get('metadata_dim', 5))
         self.score_mlp_hidden = int(semrd_cfg.get('score_mlp_hidden', 128))
+        # 'learned' (default, use score_mlp) or 'random' (no learn, ablation)
+        self.core_selection_mode = str(semrd_cfg.get('core_selection_mode', 'learned'))
+        # Heterogeneous receiver vocabulary: 'homogeneous' (default),
+        # 'vehicle_only', 'infra_only'. Used in Table 4.
+        self.vocab = str(semrd_cfg.get('vocab', 'homogeneous'))
 
         # ---- new modules ----
         if self.semrd_enabled:
@@ -106,6 +114,7 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
                 metadata_dim=self.metadata_dim,
                 hidden=self.score_mlp_hidden,
                 target_mass=self.target_core_mass,
+                mode=self.core_selection_mode,
                 gumbel_tau=self.gumbel_tau_init,
             )
             self.inference_module = DifferentiableInferenceModule(
@@ -218,9 +227,33 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
         else:
             regrouped_mask = torch.ones(B, L, 1, H, W, device=regroup_feature.device)
 
+        # ===== NEW Stage B': Heterogeneous vocabulary mask =====
+        # IMPORTANT: applied BEFORE the Inference Module so that IM can
+        # correctly reconstruct features of the chosen vocabulary type only.
+        # prior_encoding: (B, L, 3) where [..., 2] = is_infrastructure (0/1)
+        vocab_mask_2d = None
+        if self.vocab != 'homogeneous' and prior_encoding is not None:
+            is_infra = prior_encoding[..., 2] > 0.5  # (B, L) bool
+            if self.vocab == 'vehicle_only':
+                vocab_mask = (~is_infra).float().view(B, L, 1, 1, 1)
+            elif self.vocab == 'infra_only':
+                vocab_mask = is_infra.float().view(B, L, 1, 1, 1)
+            else:
+                vocab_mask = torch.ones(B, L, 1, 1, 1, device=regroup_feature.device)
+            vocab_mask_2d = vocab_mask.squeeze(-1).squeeze(-1)  # (B, L)
+            regroup_feature = regroup_feature * vocab_mask
+            print(f'[SemRD] vocab={self.vocab}: '
+                  f'vehicles={int((~is_infra).sum())}, '
+                  f'infra={int(is_infra.sum())}')
+
         # ===== NEW Stage C: Differentiable Inference Module =====
         if self.semrd_enabled and self.inference_module is not None and self.inference_depth > 0:
-            regroup_feature = self.inference_module(regroup_feature, regrouped_mask)
+            # Apply vocab mask to IM target so IM does not try to fill
+            # vocabulary-excluded positions (which it cannot reconstruct).
+            im_mask = regrouped_mask
+            if vocab_mask_2d is not None:
+                im_mask = im_mask * vocab_mask_2d.unsqueeze(-1).unsqueeze(-1)
+            regroup_feature = self.inference_module(regroup_feature, im_mask)
             # missing-agent positions (mask[i]=0 in v2x-vit's regroup mask) should
             # stay at 0 to avoid contaminating the fusion with fake data
             # regroup_feature = regroup_feature * mask.unsqueeze(2).unsqueeze(-1).unsqueeze(-1)

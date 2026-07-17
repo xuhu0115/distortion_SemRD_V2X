@@ -22,7 +22,7 @@ else
     PROJ="/home/xuhu/project/distortion_SemRD_V2X"
 fi
 
-V2X=$PROJ/project/v2x-vit
+V2X=$PROJ/v2x-vit
 YAML=$V2X/v2xvit/hypes_yaml/point_pillar_v2xvit_semrd.yaml
 LOGS=$V2X/logs
 

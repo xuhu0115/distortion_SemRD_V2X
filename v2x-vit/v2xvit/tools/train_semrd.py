@@ -73,10 +73,9 @@ def main():
         print(f'[Subset] val:   {n_sub}/{n_total} = {val_subset*100:.1f}%')
         opencood_validate_dataset = Subset(opencood_validate_dataset, idx)
 
-    # HARD-CODED num_workers=0: docker /dev/shm is only 64MB, too small for
-    # DataLoader workers to use file-descriptor shared memory. Set
-    # NUM_WORKERS env var to >0 only if you have >= 4GB /dev/shm.
-    num_workers = int(os.environ.get('NUM_WORKERS', 0))  # MUST be 0 in docker
+    # num_workers: set NUM_WORKERS env var to override. Default 8 for new server
+    # (assumes /dev/shm >= 4GB). On Docker (64MB /dev/shm) use NUM_WORKERS=0.
+    num_workers = int(os.environ.get('NUM_WORKERS', 20))
     print(f'DataLoader num_workers = {num_workers} (override via NUM_WORKERS env)')
     train_loader = DataLoader(opencood_train_dataset,
                               batch_size=hypes['train_params']['batch_size'],
@@ -163,6 +162,13 @@ def main():
             # log
             core_mass = ouput_dict.get('core_mass', torch.tensor(1.0))
             bandwidth_bytes = ouput_dict.get('bandwidth_bytes', 0.0)
+            # Fallback for V2X-ViT baseline (no CSM, no bandwidth field):
+            # compute bandwidth from record_len (number of agents per sample)
+            if bandwidth_bytes == 0.0 or bandwidth_bytes is None:
+                record_len = batch_data['record_len']
+                N_agents = int(record_len.sum().item())
+                # C=256, H=48, W=176 (from shrink_conv output)
+                bandwidth_bytes = float(N_agents) * 256 * 48 * 176 * 4
             core_mass_f = float(core_mass.item()) if torch.is_tensor(core_mass) else 1.0
             bw_mb = float(bandwidth_bytes) / (1024 * 1024) \
                 if isinstance(bandwidth_bytes, (int, float)) else 0.0

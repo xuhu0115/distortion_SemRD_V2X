@@ -9,8 +9,10 @@
 #                         --hypes_yaml v2xvit/hypes_yaml/point_pillar_v2xvit_semrd.yaml
 
 name: point_pillar_v2xvit_semrd
-root_dir: 'v2xset/train'
-validate_dir: 'v2xset/validate'
+# root_dir: 'v2xset/train'
+# validate_dir: 'v2xset/validate'
+root_dir: '/root/autodl-tmp/v2xset/train' 
+validate_dir: '/root/autodl-tmp/v2xset/validate'
 
 wild_setting:
   async: false
@@ -27,11 +29,11 @@ wild_setting:
 yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 2
-  epoches: 3
+  epoches: 30
   eval_freq: 1
   save_freq: 1
   max_cav: &max_cav 5
-  num_workers: 0    # 0 to avoid shared memory issues; raise to 4-8 if /dev/shm is large enough
+  num_workers: 20    # 0 to avoid shared memory issues; raise to 4-8 if /dev/shm is large enough
 
 fusion:
   core_method: 'IntermediateFusionDataset'
@@ -91,13 +93,13 @@ model:
       enabled: true
       # Target fraction of BEV positions selected as "core" (P_A).
       # Valid range: (0, 1]. 1.0 = no compression (degenerate to baseline V2X-ViT).
-      target_core_mass: 1.0
+      target_core_mass: 0.5
       # Number of stacked diffusion layers in the inference module (δ).
       # 0 = disable IM (no closure reconstruction).
-      inference_depth: 0
+      inference_depth: 5
       # Rate regularization weight (λ in main.tex Eq. 34). 0 disables RR.
       lambda_rate: 0.05
-      use_rate_reg: false
+      use_rate_reg: true
       # Gumbel-Softmax annealing schedule (start hot, end sharp)
       gumbel_temperature_init: 5.0
       gumbel_temperature_end: 0.5

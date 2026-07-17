@@ -1,8 +1,12 @@
-name: point_pillar_v2xvit
-# root_dir: 'v2xset/train'
-# validate_dir: 'v2xset/validate'
-root_dir: '/root/autodl-tmp/v2xset/train' 
-validate_dir: '/root/autodl-tmp/v2xset/validate'
+name: point_pillar_v2xvit_semrd_mini
+# Mini V2XSet config for fast pipeline testing on new servers
+# Total: ~50MB, 5 scenarios x 30 frames
+
+# === Dataset paths (CHANGE THESE) ===
+# After running `make_v2xset_mini.sh`, point these to the v2xset_mini/ dir
+root_dir: 'v2xset_mini/train'
+validate_dir: 'v2xset_mini/validate'
+test_dir: 'v2xset_mini/test'
 
 wild_setting:
   async: false
@@ -19,46 +23,39 @@ wild_setting:
 yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 2
-  epoches: 30
+  # Use small epoch for quick testing
+  epoches: &epoches 2
   eval_freq: 1
   save_freq: 1
   max_cav: &max_cav 5
+  # train_subset: 1.0  # already mini, no need to subset
 
 fusion:
-  core_method: 'IntermediateFusionDataset' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported
+  core_method: 'IntermediateFusionDataset'
   args:
     cur_ego_pose_flag: False
-      # when the cur_ego_pose_flag is set to True, there is no time gap
-      # between  the time when the LiDAR data is captured by connected
-      # agents and when the extracted features are received by
-      # the ego vehicle, which is equal to implement STCM. When set to False,
-      # STCM has to be used.
 
 # preprocess-related
 preprocess:
-  # options: BasePreprocessor, VoxelPreprocessor, BevPreprocessor
   core_method: 'SpVoxelPreprocessor'
   args:
     voxel_size: &voxel_size [0.4, 0.4, 4]
     max_points_per_voxel: 32
     max_voxel_train: 32000
     max_voxel_test: 70000
-  # lidar range for each individual cav.
   cav_lidar_range: &cav_lidar [-140.8, -38.4, -3, 140.8, 38.4, 1]
 
 data_augment:
   - NAME: random_world_flip
     ALONG_AXIS_LIST: [ 'x' ]
-
   - NAME: random_world_rotation
     WORLD_ROT_ANGLE: [ -0.78539816, 0.78539816 ]
-
   - NAME: random_world_scaling
     WORLD_SCALE_RANGE: [ 0.95, 1.05 ]
 
 # anchor box related
 postprocess:
-  core_method: 'VoxelPostprocessor' # VoxelPostprocessor, BevPostprocessor supported
+  core_method: 'VoxelPostprocessor'
   anchor_args:
     cav_lidar_range: *cav_lidar
     l: 3.9
@@ -71,19 +68,19 @@ postprocess:
     pos_threshold: 0.6
     neg_threshold: 0.45
     score_threshold: 0.27
-  order: 'hwl' # hwl or lwh
-  max_num: 100 # maximum number of objects in a single frame. use this number to make sure different frames has the same dimension in the same batch
+  order: 'hwl'
+  max_num: 100
   nms_thresh: 0.15
 
 # model related
 model:
-  core_method: point_pillar_transformer
+  core_method: point_pillar_v2xvit_semrd
   args:
     voxel_size: *voxel_size
     lidar_range: *cav_lidar
     anchor_number: *achor_num
     max_cav: *max_cav
-    compression: 0 # compression rate
+    compression: 0
     backbone_fix: false
 
     pillar_vfe:
@@ -105,28 +102,24 @@ model:
       stride: [2]
       padding: [1]
       dim: [256]
-      input_dim: 384 # 128 * 3
+      input_dim: 384
 
     transformer:
-      encoder: &encoder
-        # number of fusion blocks per encoder layer
+      encoder:
         num_blocks: 1
-        # number of encoder layers
         depth: 3
         use_roi_mask: true
-        use_RTE: &use_RTE true
-        RTE_ratio: &RTE_ratio 2 # 2 means the dt has 100ms interval while 1 means 50 ms interval
-        # agent-wise attention
-        cav_att_config: &cav_att_config
+        use_RTE: true
+        RTE_ratio: 2
+        cav_att_config:
           dim: 256
           use_hetero: true
-          use_RTE: *use_RTE
-          RTE_ratio: *RTE_ratio
+          use_RTE: true
+          RTE_ratio: 2
           heads: 8
           dim_head: 32
           dropout: 0.3
-        # spatial-wise attention
-        pwindow_att_config: &pwindow_att_config
+        pwindow_att_config:
           dim: 256
           heads: [16, 8, 4]
           dim_head: [16, 32, 64]
@@ -134,15 +127,24 @@ model:
           window_size: [4, 8, 16]
           relative_pos_embedding: true
           fusion_method: 'split_attn'
-        # feedforward condition
-        feed_forward: &feed_forward
+        feed_forward:
           mlp_dim: 256
           dropout: 0.3
-        sttf: &sttf
+        sttf:
           voxel_size: *voxel_size
           downsample_rate: 4
 
-      # add decoder later
+    # === SemRD modules (the only new addition) ===
+    semrd:
+      enabled: true
+      target_core_mass: 0.5   # main config: 50% bandwidth reduction
+      inference_depth: 3       # 3-layer IM
+      lambda_rate: 0.05
+      use_rate_reg: true
+      gumbel_temperature_init: 5.0
+      gumbel_temperature_end: 0.5
+      metadata_dim: 5
+      score_mlp_hidden: 128
 
 loss:
   core_method: point_pillar_loss
@@ -158,7 +160,6 @@ optimizer:
     weight_decay: 1e-4
 
 lr_scheduler:
-  core_method: multistep #step, multistep and Exponential support
+  core_method: multistep
   gamma: 0.1
   step_size: [15, 50]
-

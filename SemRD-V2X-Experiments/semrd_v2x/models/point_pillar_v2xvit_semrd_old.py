@@ -227,20 +227,18 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
         else:
             regrouped_mask = torch.ones(B, L, 1, H, W, device=regroup_feature.device)
 
-        # ===== NEW Stage B': Heterogeneous vocabulary mask =====
-        # IMPORTANT: applied BEFORE the Inference Module so that IM can
-        # correctly reconstruct features of the chosen vocabulary type only.
+        # ===== NEW Heterogeneous vocabulary mask =====
         # prior_encoding: (B, L, 3) where [..., 2] = is_infrastructure (0/1)
-        vocab_mask_2d = None
         if self.vocab != 'homogeneous' and prior_encoding is not None:
             is_infra = prior_encoding[..., 2] > 0.5  # (B, L) bool
             if self.vocab == 'vehicle_only':
+                # Mask out infrastructure features (keep only vehicles)
                 vocab_mask = (~is_infra).float().view(B, L, 1, 1, 1)
             elif self.vocab == 'infra_only':
+                # Mask out vehicle features (keep only infrastructure)
                 vocab_mask = is_infra.float().view(B, L, 1, 1, 1)
             else:
                 vocab_mask = torch.ones(B, L, 1, 1, 1, device=regroup_feature.device)
-            vocab_mask_2d = vocab_mask.squeeze(-1).squeeze(-1)  # (B, L)
             regroup_feature = regroup_feature * vocab_mask
             print(f'[SemRD] vocab={self.vocab}: '
                   f'vehicles={int((~is_infra).sum())}, '
@@ -248,12 +246,7 @@ class PointPillarV2XViTSemRD(PointPillarTransformer):
 
         # ===== NEW Stage C: Differentiable Inference Module =====
         if self.semrd_enabled and self.inference_module is not None and self.inference_depth > 0:
-            # Apply vocab mask to IM target so IM does not try to fill
-            # vocabulary-excluded positions (which it cannot reconstruct).
-            im_mask = regrouped_mask
-            if vocab_mask_2d is not None:
-                im_mask = im_mask * vocab_mask_2d.unsqueeze(-1).unsqueeze(-1)
-            regroup_feature = self.inference_module(regroup_feature, im_mask)
+            regroup_feature = self.inference_module(regroup_feature, regrouped_mask)
             # missing-agent positions (mask[i]=0 in v2x-vit's regroup mask) should
             # stay at 0 to avoid contaminating the fusion with fake data
             # regroup_feature = regroup_feature * mask.unsqueeze(2).unsqueeze(-1).unsqueeze(-1)

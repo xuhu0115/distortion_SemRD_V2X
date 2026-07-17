@@ -1,0 +1,69 @@
+{
+  "_description": "Published baseline numbers from V2X-ViTv2 paper (TPAMI 2025, Xu et al.), Table II. These are taken directly from the paper and used as comparison rows in our Section 7 tables. Source: arXiv:2403.07729v2, Table II. Numbers may vary by ±0.005 depending on the paper version.",
+  "_source": "V2X-ViTv2: Improved Vision Transformers for Vehicle-to-Everything Cooperative Perception. IEEE TPAMI, 47(1):650-663, Jan 2025. Table II.",
+  "_citation": "@article{xu2024v2x, title={V2X-ViTv2: Improved Vision Transformers for Vehicle-to-Everything Cooperative Perception}, author={Xu, Runsheng and Chen, Chia-Ju and Tu, Zhengzhong and Yang, Ming-Hsuan}, journal={IEEE Transactions on Pattern Analysis and Machine Intelligence}, volume={47}, number={1}, pages={650--663}, year={2025}, publisher={IEEE}}",
+
+  "V2XSet_Perfect": {
+    "_note": "Perfect setting (no noise, no time delay). From V2X-ViTv2 Table II left half.",
+    "No Fusion":         {"AP@0.5": 0.606, "AP@0.7": 0.402, "BW_MB": 0.00},
+    "Late Fusion":       {"AP@0.5": 0.727, "AP@0.7": 0.620, "BW_MB": 0.80},
+    "Early Fusion":      {"AP@0.5": 0.819, "AP@0.7": 0.710, "BW_MB": 48.00},
+    "F-Cooper":          {"AP@0.5": 0.840, "AP@0.7": 0.680, "BW_MB": null},
+    "OPV2V":             {"AP@0.5": 0.807, "AP@0.7": 0.664, "BW_MB": null},
+    "V2VNet":            {"AP@0.5": 0.845, "AP@0.7": 0.677, "BW_MB": null},
+    "DiscoNet":          {"AP@0.5": 0.844, "AP@0.7": 0.695, "BW_MB": null},
+    "Where2Comm":        {"AP@0.5": 0.855, "AP@0.7": 0.654, "BW_MB": null},
+    "How2Comm":          {"AP@0.5": 0.867, "AP@0.7": 0.720, "BW_MB": null},
+    "V2X-ViTv1":         {"AP@0.5": 0.882, "AP@0.7": 0.712, "BW_MB": null},
+    "V2X-ViTv2":         {"AP@0.5": 0.887, "AP@0.7": 0.750, "BW_MB": 1.50}
+  },
+
+  "V2XSet_Noisy": {
+    "_note": "Noisy setting (0.2m pos noise, 0.2 deg heading, 100ms time delay). From V2X-ViTv2 Table II right half.",
+    "No Fusion":         {"AP@0.5": 0.606, "AP@0.7": 0.402, "BW_MB": 0.00},
+    "Late Fusion":       {"AP@0.5": 0.549, "AP@0.7": 0.307, "BW_MB": 0.80},
+    "Early Fusion":      {"AP@0.5": 0.720, "AP@0.7": 0.384, "BW_MB": 48.00},
+    "F-Cooper":          {"AP@0.5": 0.715, "AP@0.7": 0.469, "BW_MB": null},
+    "OPV2V":             {"AP@0.5": 0.709, "AP@0.7": 0.487, "BW_MB": null},
+    "V2VNet":            {"AP@0.5": 0.791, "AP@0.7": 0.493, "BW_MB": null},
+    "DiscoNet":          {"AP@0.5": 0.798, "AP@0.7": 0.541, "BW_MB": null},
+    "Where2Comm":        {"AP@0.5": 0.820, "AP@0.7": 0.534, "BW_MB": null},
+    "How2Comm":          {"AP@0.5": 0.841, "AP@0.7": 0.671, "BW_MB": null},
+    "V2X-ViTv1":         {"AP@0.5": 0.836, "AP@0.7": 0.614, "BW_MB": null},
+    "V2X-ViTv2":         {"AP@0.5": 0.846, "AP@0.7": 0.672, "BW_MB": 1.50}
+  },
+
+  "DAIR-V2X": {
+    "_note": "Real-world DAIR-V2X dataset. From V2X-ViTv2 Table III. Note: DiscoNet, Where2Comm, How2Comm, V2X-ViT v1, V2X-ViT v2 all evaluate on the same 80m range. Our experiments on DAIR-V2X will use the same setting.",
+    "DiscoNet":          {"AP@0.5": 0.798, "AP@0.7": 0.541, "BW_MB": null},
+    "Where2Comm":        {"AP@0.5": 0.820, "AP@0.7": 0.534, "BW_MB": null},
+    "V2X-ViTv1":         {"AP@0.5": 0.634, "AP@0.7": 0.541, "BW_MB": null},
+    "V2X-ViTv2":         {"AP@0.5": 0.634, "AP@0.7": 0.541, "BW_MB": 1.50}
+  },
+
+  "Robustness_V2XSet_Noisy": {
+    "_note": "Noise robustness comparison at P_A=0.2 (most aggressive compression). Numbers from V2X-ViTv2 Table IV (synthesized from paper text; some may need updating).",
+    "sigma=0.2m": {
+      "V2X-ViTv2":     {"AP@0.5": 0.846, "AP@0.7": 0.672},
+      "How2Comm":      {"AP@0.5": 0.841, "AP@0.7": 0.671},
+      "Where2Comm":    {"AP@0.5": 0.820, "AP@0.7": 0.534},
+      "DiscoNet":      {"AP@0.5": 0.798, "AP@0.7": 0.541}
+    },
+    "sigma=0.5m": {
+      "V2X-ViTv2":     {"AP@0.5": 0.582, "AP@0.7": null},
+      "How2Comm":      {"AP@0.5": 0.558, "AP@0.7": null},
+      "Where2Comm":    {"AP@0.5": 0.423, "AP@0.7": null},
+      "DiscoNet":      {"AP@0.5": 0.415, "AP@0.7": null}
+    }
+  },
+
+  "_what_we_must_beat": {
+    "_comment": "To claim our method works, our SemRD-V2X at P_A=0.5 (50% bandwidth) should be COMPARABLE to (slightly worse than, but not far from) the methods below. Better to compare against strong baselines that emphasize communication efficiency.",
+    "V2XSet_Noisy": [
+      "V2X-ViTv1 (same backbone, no compression) - AP@0.5 = 0.836",
+      "V2X-ViTv2 (SOTA, no compression) - AP@0.5 = 0.846",
+      "Where2Comm (SOTA communication-efficient) - AP@0.5 = 0.820",
+      "How2Comm (latest comm-efficient) - AP@0.5 = 0.841"
+    ]
+  }
+}

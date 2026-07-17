@@ -14,16 +14,22 @@ Differences:
   1. Uses the SemRD model class.
   2. Times each forward pass for latency.
   3. Accumulates core_mass and bandwidth statistics across the dataset.
+  4. Supports --epoch N to load a specific checkpoint.
+  5. Saves per-epoch metrics_*.json AND backs up eval.yaml as eval_ep*.yaml
+     so consecutive inference runs don't clobber each other.
 
 Place at:  v2xvit/tools/inference_semrd.py
 Run with:  python v2xvit/tools/inference_semrd.py \
                 --model_dir logs/point_pillar_v2xvit_semrd_XXX/ \
                 --fusion_method intermediate
+                --epoch 10           # optional, load specific epoch
+                --metrics_name ep10  # optional, save to metrics_ep10.json
 """
 
 import argparse
 import json
 import os
+import shutil
 import time
 from collections import defaultdict
 
@@ -42,6 +48,12 @@ def parse_args():
     parser.add_argument('--fusion_method', default='intermediate', type=str)
     parser.add_argument('--save_metrics', default='', type=str,
                         help='path to save metrics JSON (default: model_dir/metrics.json)')
+    parser.add_argument('--epoch', type=int, default=0,
+                        help='which checkpoint epoch to load (e.g. 5, 10, 15). '
+                             '0 = use the latest checkpoint in model_dir.')
+    parser.add_argument('--metrics_name', default='', type=str,
+                        help='suffix for output metrics file (e.g. ep10 -> metrics_ep10.json). '
+                             'Default = empty (overwrites metrics.json).')
     return parser.parse_args()
 
 
@@ -53,8 +65,7 @@ def main():
 
     print('Dataset Building')
     opencood_dataset = build_dataset(hypes, visualize=False, train=False)
-    # HARD-CODED num_workers=0: docker /dev/shm only 64MB. Set NUM_WORKERS env to override.
-    num_workers = int(os.environ.get('NUM_WORKERS', 0))
+    num_workers = int(os.environ.get('NUM_WORKERS', 20))
     data_loader = DataLoader(opencood_dataset,
                              batch_size=1,
                              num_workers=num_workers,
@@ -66,15 +77,22 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
-    print('Loading Model from', opt.model_dir)
-    _, model = train_utils.load_saved_model(opt.model_dir, model)
+    # Load specific or latest checkpoint
+    if opt.epoch > 0:
+        ckpt_path = os.path.join(opt.model_dir, f'net_epoch{opt.epoch}.pth')
+        if not os.path.isfile(ckpt_path):
+            raise FileNotFoundError(f'Checkpoint not found: {ckpt_path}')
+        print(f'Loading checkpoint epoch {opt.epoch} from {ckpt_path}')
+        model.load_state_dict(torch.load(ckpt_path), strict=True)
+    else:
+        print('Loading Model from', opt.model_dir)
+        _, model = train_utils.load_saved_model(opt.model_dir, model)
     model.eval()
 
     result_stat = {0.3: {'tp': [], 'fp': [], 'gt': 0},
                    0.5: {'tp': [], 'fp': [], 'gt': 0},
                    0.7: {'tp': [], 'fp': [], 'gt': 0}}
 
-    # extra metric accumulators
     bandwidth_list = []
     core_mass_list = []
     latency_list = []
@@ -96,8 +114,7 @@ def main():
             torch.cuda.synchronize()
             latency_ms = (time.time() - t0) * 1000.0
 
-            # record extra metrics — note these are read AFTER the inference
-            # utility's forward pass
+            # record extra metrics — read AFTER the inference utility's forward pass
             if hasattr(model, '_last_bandwidth_bytes') and model._last_bandwidth_bytes is not None:
                 bandwidth_list.append(model._last_bandwidth_bytes)
             if hasattr(model, '_last_core_mass') and model._last_core_mass is not None:
@@ -119,31 +136,53 @@ def main():
                 print(f"Processed {i + 1}/{len(data_loader)} frames, "
                       f"last latency: {latency_ms:.2f} ms")
 
-    # ---- print & save metrics ----
     print("\n========= AP results =========")
     eval_utils.eval_final_results(result_stat, opt.model_dir)
 
-    if bandwidth_list:
-        avg_bw_mb = sum(bandwidth_list) / len(bandwidth_list) / (1024 * 1024)
+    avg_bw_mb = sum(bandwidth_list) / len(bandwidth_list) / (1024 * 1024) if bandwidth_list else None
+    avg_cm = sum(core_mass_list) / len(core_mass_list) if core_mass_list else None
+    avg_lat = sum(latency_list) / len(latency_list) if latency_list else None
+
+    if avg_bw_mb is not None:
         print(f"Avg bandwidth:    {avg_bw_mb:.3f} MB/frame")
-    if core_mass_list:
-        avg_cm = sum(core_mass_list) / len(core_mass_list)
+    if avg_cm is not None:
         print(f"Avg core mass P_A: {avg_cm:.3f}")
-    if latency_list:
-        avg_lat = sum(latency_list) / len(latency_list)
+    if avg_lat is not None:
         print(f"Avg latency:      {avg_lat:.2f} ms/frame")
 
-    # save JSON
-    save_path = opt.save_metrics or os.path.join(opt.model_dir, 'metrics.json')
-    ap_results = {iou: result_stat[iou] for iou in [0.3, 0.5, 0.7]}
+    # ---- Back up eval.yaml with epoch suffix ----
+    # Without this, running --epoch 5, then --epoch 10 would overwrite
+    # eval.yaml each time, losing the ep5 result. With the backup:
+    #   eval.yaml         -- latest run
+    #   eval_ep5.yaml     -- ep5 result preserved
+    #   eval_ep10.yaml    -- ep10 result preserved
+    src_eval = os.path.join(opt.model_dir, 'eval.yaml')
+    if os.path.isfile(src_eval):
+        suffix = f'ep{opt.epoch}' if opt.epoch > 0 else 'latest'
+        dst_eval = os.path.join(opt.model_dir, f'eval_{suffix}.yaml')
+        try:
+            shutil.copy(src_eval, dst_eval)
+            print(f'Also saved eval.yaml copy as: {dst_eval}')
+        except Exception as e:
+            print(f'Warning: failed to copy eval.yaml: {e}')
+
+    # ---- save JSON metrics ----
+    if opt.save_metrics:
+        save_path = opt.save_metrics
+    elif opt.metrics_name:
+        save_path = os.path.join(opt.model_dir, f'metrics_{opt.metrics_name}.json')
+    else:
+        save_path = os.path.join(opt.model_dir, 'metrics.json')
+
     metrics = {
         'num_frames': len(data_loader),
         'ap_at_0.3': result_stat[0.3],
         'ap_at_0.5': result_stat[0.5],
         'ap_at_0.7': result_stat[0.7],
-        'avg_bandwidth_MB_per_frame': avg_bw_mb if bandwidth_list else None,
-        'avg_core_mass': avg_cm if core_mass_list else None,
-        'avg_latency_ms_per_frame': avg_lat if latency_list else None,
+        'avg_bandwidth_MB_per_frame': avg_bw_mb,
+        'avg_core_mass': avg_cm,
+        'avg_latency_ms_per_frame': avg_lat,
+        'epoch': opt.epoch if opt.epoch > 0 else 'latest',
     }
     with open(save_path, 'w') as f:
         json.dump(metrics, f, indent=2, default=str)
